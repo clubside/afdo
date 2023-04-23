@@ -1,0 +1,22 @@
+{
+  "name": "afdo",
+  "version": "1.0.0",
+  "description": "Work with audio files from the command line",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "links",
+    "bookmarks",
+    "organize"
+  ],
+  "author": "Chris Rowley",
+  "license": "MIT",
+  "dependencies": {
+    "ffmetadata": "^1.7.0"
+  }
+}
