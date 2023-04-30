@@ -91,5 +91,5 @@ out/
 # VSCode Workspace
 *.code-workspace
 
-# Personal test data
-test/
+# Personal reference files
+resources/

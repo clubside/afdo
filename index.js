@@ -3,7 +3,7 @@
 const { argv } = require('node:process')
 const { spawnSync } = require('child_process')
 const { lstatSync, readdirSync, Dirent } = require('fs')
-const { sep } = require('path')
+const path = require('path')
 
 // Set path to ffmpeg - optional if in $PATH or $FFMPEG_PATH
 // ffmetadata.setFfmpegPath('\\\\CLUBNAS\\pc\\NewsBin\\Time-Life\\Sounds of the 70s\\Sounds of the 70s - Hit Wonders\\Sounds Of The Seventies - Wonderhits Disc 1')
@@ -41,14 +41,14 @@ async function main(dir) {
 	const audioFiles = []
 
 	for (let i = 0; i < rddata.length; ++i) {
-		const name = rddata[i]
-		const path = `${dir}${sep}${name}`
+		const itemName = rddata[i]
+		const itemPath = `${dir}${path.sep}${itemName}`
 		try {
-			const stat = lstatSync(path)
+			const stat = lstatSync(itemPath)
 			if (stat.isFile()) {
-				files.push(path)
+				files.push(itemPath)
 			} else if (stat.isDirectory()) {
-				folders.push(path)
+				folders.push(itemPath)
 			}
 		} catch (e) {
 			console.error(`Unable to read ${path}`)
@@ -65,18 +65,28 @@ async function main(dir) {
 	audioFiles.sort((a, b) => Number(a.meta.track) - Number(b.meta.track))
 	// console.log(audioFiles)
 	for (const audioFile of audioFiles) {
-		console.log(`${audioFile.meta.title || 'No Tile'} - ${audioFile.meta.artist || 'No Artist'}${audioFile.meta.duration ? ` (${audioFile.meta.duration})` : ''}`)
+		const outMain = audioFile.meta.title || audioFile.meta.artist
+			? `${audioFile.meta.title || 'No Tile'} - ${audioFile.meta.artist || 'No Artist'}`
+			: audioFile.meta.file
+		const outDuration = audioFile.meta.durationCalc
+			? ` (${audioFile.meta.durationCalc})`
+			: audioFile.meta.durationRead ? ` (${audioFile.meta.durationRead})` : ''
+		console.log(`${outMain}${outDuration}`)
 	}
 }
 
 async function getEntry(file) {
 	const result = spawnSync('ffmpeg', ['-i', file, '-f', 'ffmetadata', 'pipe:1'], { detached: true, encoding: 'binary' })
 	// console.log(result)
-	const data = result.stdout
-	if (!data) {
+	if (!result.stdout) {
 		return undefined
 	}
-	const meta = await getMetaData(data)
+	const meta = await getMetaData(result.stdout)
+	meta.durationRead = await getDuration(result.stderr)
+	meta.file = path.basename(file)
+	if (meta.file.indexOf('.')) {
+		meta.file = meta.file.substring(0, meta.file.lastIndexOf('.'))
+	}
 	return { file, meta }
 }
 
@@ -97,8 +107,30 @@ async function getMetaData(stdio) {
 		}
 	}
 	data.track = data.track || '0'
-	data.duration = formatDuration(data.TLEN, '%m:%S')
+	data.durationCalc = formatDuration(data.TLEN, '%m:%S')
 	return data
+}
+
+async function getDuration(stderr) {
+	// console.log(stderr)
+	// TODO Round-up Math
+	const durationIndex = stderr.indexOf('  Duration: ')
+	if (durationIndex) {
+		const durationParts = stderr.substring(durationIndex + 12, stderr.indexOf(',', durationIndex)).split(':')
+		durationParts[3] = durationParts[2].substring(3)
+		durationParts[2] = durationParts[2].substring(0, 2)
+		// console.log(`Duration: ${stderr.substring(durationIndex + 12, stderr.indexOf(',', durationIndex))}`)
+		// console.log(durationParts)
+		if (Number(durationParts[0]) > 0) {
+			return `${Number(durationParts[0])}:${durationParts[1]}:${durationParts[2]}`
+		} else if (Number(durationParts[1]) > 0) {
+			return `${Number(durationParts[1])}:${durationParts[2]}`
+		} else if (Number(durationParts[2]) > 0) {
+			return `0:${durationParts[2]}`
+		} else {
+			return undefined
+		}
+	}
 }
 
 let activeFolder = __dirname
