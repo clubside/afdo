@@ -1,13 +1,12 @@
 'use strict'
 
-const { argv } = require('node:process')
-const { spawnSync } = require('child_process')
-const { lstatSync, readdirSync, Dirent } = require('fs')
-const path = require('path')
+import { argv } from 'node:process'
+import { lstatSync, readdirSync, Dirent } from 'fs'
+import path from 'path'
+import { parseFile } from 'music-metadata'
+import { inspect, parseArgs } from 'util'
 
-// Set path to ffmpeg - optional if in $PATH or $FFMPEG_PATH
-// ffmetadata.setFfmpegPath('\\\\CLUBNAS\\pc\\NewsBin\\Time-Life\\Sounds of the 70s\\Sounds of the 70s - Hit Wonders\\Sounds Of The Seventies - Wonderhits Disc 1')
-// ffmetadata.setFfmpegPath('//CLUBNAS/pc/NewsBin/Time-Life/Sounds of the 70s/Sounds of the 70s - Hit Wonders/Sounds Of The Seventies - Wonderhits Disc 1')
+const audioExts = ['mp3', 'flac']
 
 function formatDuration(duration, format) {
 	if (isNaN(duration)) {
@@ -56,102 +55,71 @@ async function main(dir) {
 	}
 
 	for (const file of files) {
-		const audioFile = await getEntry(file)
-		if (audioFile) {
-			audioFiles.push(audioFile)
+		if (audioExts.includes(file.split('.').pop())) {
+			const audioFile = await getEntry(file)
+			if (audioFile) {
+				audioFiles.push(audioFile)
+			}
 		}
 	}
 	console.log(`Audio Files: ${audioFiles.length}`)
-	audioFiles.sort((a, b) => Number(a.meta.track) - Number(b.meta.track))
+	audioFiles.sort((a, b) => Number(a.metadata.track) - Number(b.metadata.track))
 	// console.log(audioFiles)
 	for (const audioFile of audioFiles) {
-		const outMain = audioFile.meta.title || audioFile.meta.artist
-			? `${audioFile.meta.title || 'No Tile'} - ${audioFile.meta.artist || 'No Artist'}`
-			: audioFile.meta.file
-		const outDuration = audioFile.meta.durationCalc
-			? ` (${audioFile.meta.durationCalc})`
-			: audioFile.meta.durationRead ? ` (${audioFile.meta.durationRead})` : ''
-		console.log(`${outMain}${outDuration}`)
+		const outMain = audioFile.metadata.common.title || audioFile.metadata.common.artist
+			? `${audioFile.metadata.common.title || 'No Tile'} - ${audioFile.metadata.common.artist || 'No Artist'}`
+			: audioFile.metadata.file
+		console.log(`${outMain} (${audioFile.metadata.duration})`)
 	}
 }
 
 async function getEntry(file) {
-	const result = spawnSync('ffmpeg', ['-i', file, '-f', 'ffmetadata', 'pipe:1'], { detached: true, encoding: 'binary' })
-	// console.log(result)
-	if (!result.stdout) {
-		return undefined
-	}
-	const meta = await getMetaData(result.stdout)
-	meta.durationRead = await getDuration(result.stderr)
-	meta.file = path.basename(file)
-	if (meta.file.indexOf('.')) {
-		meta.file = meta.file.substring(0, meta.file.lastIndexOf('.'))
-	}
-	return { file, meta }
-}
-
-async function getMetaData(stdio) {
-	const lines = stdio.split('\n')
-	const data = {}
-	let key
-	for (const line of lines) {
-		if (line.substring(0, 1) !== ';') {
-			const index = line.indexOf('=')
-			if (index === -1) {
-				data[key] += line.slice(index + 1)
-				data[key] = data[key].replace('\\', '\n')
-			} else {
-				key = line.slice(0, index)
-				data[key] = line.slice(index + 1)
+	try {
+		const metadata = await parseFile(file)
+		// console.log(inspect(metadata, { showHidden: false, depth: null }))
+		if (metadata.format) {
+			metadata.duration = formatDuration(metadata.format.duration * 1000, '%m:%S')
+			metadata.track = metadata.common.track.no || '0'
+			metadata.file = path.basename(file)
+			if (metadata.file.indexOf('.')) {
+				metadata.file = metadata.file.substring(0, metadata.file.lastIndexOf('.'))
 			}
-		}
-	}
-	data.track = data.track || '0'
-	data.durationCalc = formatDuration(data.TLEN, '%m:%S')
-	return data
-}
-
-async function getDuration(stderr) {
-	// console.log(stderr)
-	// TODO Round-up Math
-	const durationIndex = stderr.indexOf('  Duration: ')
-	if (durationIndex) {
-		const durationParts = stderr.substring(durationIndex + 12, stderr.indexOf(',', durationIndex)).split(':')
-		durationParts[3] = durationParts[2].substring(3)
-		durationParts[2] = durationParts[2].substring(0, 2)
-		// console.log(`Duration: ${stderr.substring(durationIndex + 12, stderr.indexOf(',', durationIndex))}`)
-		// console.log(durationParts)
-		if (Number(durationParts[0]) > 0) {
-			return `${Number(durationParts[0])}:${durationParts[1]}:${durationParts[2]}`
-		} else if (Number(durationParts[1]) > 0) {
-			return `${Number(durationParts[1])}:${durationParts[2]}`
-		} else if (Number(durationParts[2]) > 0) {
-			return `0:${durationParts[2]}`
+			return { file, metadata }
 		} else {
 			return undefined
 		}
+	} catch (error) {
+		console.error(error.message)
+		return undefined
 	}
 }
 
-let activeFolder = __dirname
-let activeFile = ''
-
-if (argv.length > 2) {
-	for (let arg = 2; arg < argv.length; arg++) {
-		switch (argv[arg]) {
-			case '-f':
-				if (arg + 1 < argv.length) {
-					activeFolder = argv[arg + 1]
-					arg++
-				}
-				break
-			default:
-				activeFile = argv[arg]
-		}
+const commandLineOptions = {
+	folder: {
+		type: 'string',
+		short: 'f'
+	},
+	pattern: {
+	  type: 'string',
+	  short: 'p'
+	},
+	rename: {
+		type: 'boolean',
+		short: 'r'
 	}
-	argv.forEach((val, index) => {
-		console.log(`${index}: ${val}`)
-	})
 }
+const {
+	values,
+	positionals
+} = parseArgs({ options: commandLineOptions, allowPositionals: true })
+console.log(values.folder)
+// console.log(positionals)
 
-main(activeFolder)
+const activeFolder = values.folder || argv[1]
+const activeFiles = positionals
+
+if (activeFiles.length > 0) {
+	console.log(`Files: ${activeFiles}`)
+} else {
+	main(activeFolder)
+}

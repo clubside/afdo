@@ -1,5 +1,6 @@
 {
   "name": "afdo",
+  "type": "module",
   "version": "1.0.0",
   "description": "Work with audio files from the command line",
   "main": "index.js",
@@ -17,6 +18,7 @@
   "author": "Chris Rowley",
   "license": "MIT",
   "dependencies": {
-    "ffmetadata": "^1.7.0"
+    "ffmetadata": "^1.7.0",
+    "music-metadata": "^8.1.4"
   }
 }
